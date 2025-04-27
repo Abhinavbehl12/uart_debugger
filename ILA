@@ -1,27 +1,27 @@
-
-//UART controller
-/*assign    debug_bus_u     =  rxbitcnt &      //20:17
-                             rx_reg   &      //16:9
-                             toprx    &      //8
-                             rx_2d    &      //7
-                             top16_rx &      //6
-                             rxrdyi   &      //5
-                             clrdiv   &      //4
-                             rxerr    &      //3
-                             rxfsm;          //2:0 
-                             
-                             
      assign debug_bus__reg_int            =                                        
-                         core_rst &     //0                    
-                         uart_rx &      //1               
-                         current_state & //6:2                          
-                         current_state_recieve &   //11:7            
-                         risc_rd_wr_cmd &  //12                    
-                         fpga_rd_wr_cmd &  //13            
-                         debugger_rd_wr_cmd &  //14                  
-                         req_cmd_value &   //22:15                 
-                         req_cmd_addr &//30:23
-                         //63-31
-                         32'd0
-                         ;  
-                             
+                         {!core_rst ,     //0                    
+                         uart_rx ,      //1               
+                         current_state , //6:2                          
+                         current_state_recieve ,   //11:7            
+                         risc_rd_wr_cmd ,  //12                    
+                         fpga_rd_wr_cmd ,  //13            
+                         debugger_rd_wr_cmd ,  //14                  
+                         req_cmd_value ,   //22:15                 
+                         req_cmd_addr ,//30:23
+                         1'b0}
+
+assign    debug_bus_u     =  {divisor,       // 31:26
+                             core_rst,      //25
+                             rxbitcnt[6:0] ,      //24:17
+                             rx_reg   ,      //16:9
+                             toprx    ,      //8
+                             rx_2d    ,      //7
+                             top16_rx ,      //6
+                             rxrdyi   ,      //5
+                             clrdiv   ,      //4
+                             rxerr    ,      //3
+                             rxfsm};          //2:0
+
+assign debug_bus = sw6? {debug_bus_u}: //uart_controller
+                   sw7?{rst_ni,30'hDEAD_DEAD}:
+                       debug_bus__reg_int ;//reg_intf_via_uart
