@@ -14,13 +14,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/////////////////////////////////////////////////////////////////////////////
-//                                                                         //
-// Contributors: Pascal Gouedo, Dolphin Design <pascal.gouedo@dolphin.fr>  //
-//                                                                         //
-// Description:  Top level module of CV32E40P instantiating the Core and   //
-//               an optional CVFPU with its clock gating cell.             //
-//                                                                         //
+///////////////////////////////////////////////////////////////////////////
+//TXD 26 D Out Asynchronous data output (UART Transmit)
+//RXD 25 D In Asynchronous data input (UART Receive)
+//CTS 23* D In Clear To Send control input (active low)
+//RTS 24* D Out Ready to Send control output (active low)
+//DSR 27* D in Data Set Ready control input (active low)
+//DTR 28* D Out Data Terminal Ready control output (active low)
+//DCD 1* D In Data Carrier Detect control input (active low)
 /////////////////////////////////////////////////////////////////////////////
 
 module cv32e40p_fpga_top #(
@@ -37,6 +38,7 @@ module cv32e40p_fpga_top #(
     input   wire clk_25mhz,
     input   wire clk_i,
     input   wire rst_i,
+    input pll_locked,
 
  /*    input   wire pulp_clock_en_i,  // PULP clock enable (only used if COREV_CLUSTER = 1)
     input   wire scan_cg_en_i,  // Enable all clock gates for testing
@@ -87,17 +89,36 @@ module cv32e40p_fpga_top #(
 	
 	//LED interface
 	
-	output user_led0 ,
+	output reg user_led0 ,
 	output user_led1 ,
-	output user_led2 ,
+	output reg user_led2 ,
 	output user_led3 ,
 	output user_led4 ,
 	output user_led5 ,
-	output user_led6 
+	output user_led6 ,
+	
+	//DEbug interface
+	//output [31:0]debug_bus,
+	
+	//Push_buttn interface
+	input pb0 ,
+	input pb1 ,
+	input pb2 ,
+	input pb3 ,
+
+	//SW interface
+	input sw0 ,
+	input sw1 ,
+	input sw2 ,
+	input sw3 ,
+	input sw4 ,
+	input sw5 ,
+	input sw6 ,
+	input sw7 
 	
 );
 
-   // wire clk_25mhz;
+//    wire clk_25mhz;
     reg rst_ni;
   // Core to FPU
     wire                              apu_busy;
@@ -135,7 +156,12 @@ module cv32e40p_fpga_top #(
     wire fpga_rd_wr_cmd;
     wire debugger_rd_wr_cmd;
     wire start_test;
-    wire pll_locked;
+//    wire pll_locked;
+    wire [4:0]reg_intf_cur_state;
+    wire [31:0]debug_bus_u;
+    wire [31:0] debug_bus__reg_int;
+    wire uart_tx_int;
+    wire [31:0] debug_bus;
  localparam  BOOT_ADDR         = 'h00;
  localparam  DM_HALTADDRESS    = 32'h1A11_0800;
  localparam  HART_ID           = 32'h0000_0000;
@@ -144,14 +170,39 @@ module cv32e40p_fpga_top #(
   always @(posedge clk_25mhz or negedge rst_i) begin
 	    if (rst_i) begin
 	        rst_ni <= 1'd1; 
+	        user_led0 <= 1'd1; 
         end else begin
              if(!pll_locked)
                  rst_ni <= 1'b1;
              else 
                  rst_ni <= 1'b0;
+                 
+            user_led0 <= sw0;     
+            if(sw5)
+               user_led0 <= reg_intf_cur_state[0];
         end
   end       
  
+ assign user_led1 = sw5 ? reg_intf_cur_state[1] :sw1;
+ 
+ 
+  always @(posedge clk_i or negedge rst_i) begin
+	    if (rst_i) begin
+	        user_led2 <= 1'd1; 
+        end else begin
+                 
+            user_led2 <= sw0;   
+            if(sw5)
+               user_led2 <= reg_intf_cur_state[2];  
+        end
+  end    
+  
+ assign user_led3 = sw5 ? reg_intf_cur_state[3] : pll_locked ;
+ assign user_led4 = sw5 ? reg_intf_cur_state[4]: rst_ni;
+ assign user_led5 = sw5 ? start_test : uart_rx;
+  
+  
+  assign uart_tx = sw1 ? uart_tx_int : uart_rx;
   // Instantiate the Core
   cv32e40p_core #(
       .COREV_PULP      (COREV_PULP),
@@ -235,7 +286,7 @@ reg_intf_via_uart u_reg_intf_via_uart (
 .core_clk           (clk_25mhz)//25 Mhz clock
 ,.core_rst          (!rst_ni)
 ,.uart_rx           (uart_rx)
-,.uart_tx           (uart_tx)
+,.uart_tx           (uart_tx_int)
 ,.uart_busy         (uart_busy)
 ,.reg_addr          (reg_addr   )
 ,.reg_wr_data       (reg_wr_data)
@@ -247,9 +298,11 @@ reg_intf_via_uart u_reg_intf_via_uart (
 ,.test_command      ()
 ,.test_result       ()
 ,.test_result_valid ()
-,.debug_bus_u       ()
+,.debug_bus_u       (debug_bus_u)
+,.debug_bus__reg_int(debug_bus__reg_int)
 ,.risc_rd_wr_cmd    (risc_rd_wr_cmd)
 ,.fpga_rd_wr_cmd    (fpga_rd_wr_cmd)
+,.o_cur_state       (reg_intf_cur_state)
 ,.debugger_rd_wr_cmd(debugger_rd_wr_cmd)
 );
 //////////////////////////////////////////////////////////////
@@ -277,17 +330,53 @@ mem_intf_via_uart  #(
 .instr_gnt_o    ( instr_gnt        )
 
 );
-//PLL Instance
- /*clk_wiz_0 clock_25mhz_pll
-   (
-    // Clock out ports
-    .clk_out1(clk_25mhz),     // output clk_out1
-    // Status and control signals
-    .reset(!rst_ni), // input reset
-    .locked(pll_locked),       // output locked
-   // Clock in ports
-    .clk_in1(clk_i));      // input clk_in1
-*/
 
+
+assign debug_bus = sw6? {debug_bus_u}: //uart_controller
+                   sw7?{rst_ni,uart_rx,30'hDEAD_DEAD}:
+                       debug_bus__reg_int ;//reg_intf_via_uart
+
+//UART controller
+/*assign    debug_bus_u     =  rxbitcnt &      //20:17
+                             rx_reg   &      //16:9
+                             toprx    &      //8
+                             rx_2d    &      //7
+                             top16_rx &      //6
+                             rxrdyi   &      //5
+                             clrdiv   &      //4
+                             rxerr    &      //3
+                             rxfsm;          //2:0 
+                             
+                             
+     assign debug_bus__reg_int            =                                        
+                         core_rst &     //0                    
+                         uart_rx &      //1               
+                         current_state & //6:2                          
+                         current_state_recieve &   //11:7            
+                         risc_rd_wr_cmd &  //12                    
+                         fpga_rd_wr_cmd &  //13            
+                         debugger_rd_wr_cmd &  //14                  
+                         req_cmd_value &   //22:15                 
+                         req_cmd_addr &//30:23
+                         //63-31
+                         32'd0
+                         ;  
+                             
+                             
+                             */
+                             
+                             
+//reg_intf_via_uart                             
+                                                    
+                       
+ 
+// assign pll_locked = 1'b1;                      
+
+ila_0 debug_ila (
+	.clk(clk_25mhz), // input wire clk
+
+
+	.probe0(debug_bus) // input wire [31:0] probe0
+);
 
 endmodule
